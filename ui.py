@@ -64,19 +64,21 @@ if not tabelas:
     st.info("Nenhuma tabela foi encontrada no banco.")
     st.stop()
 
-selecao = st.sidebar.selectbox(
-    "Tabela",
-    tabelas,
-    format_func=lambda item: f"{item[0]}.{item[1]}",
-)
+camadas = sorted({schema for schema, _ in tabelas})
+indice_marts = camadas.index("marts") if "marts" in camadas else 0
+camada = st.sidebar.selectbox("Camada", camadas, index=indice_marts)
+tabelas_da_camada = [
+    tabela for schema, tabela in tabelas if schema == camada
+]
+tabela = st.sidebar.selectbox("Tabela", tabelas_da_camada)
 
 try:
-    total_registros, colunas, dados = carregar_tabela(*selecao)
+    total_registros, colunas, dados = carregar_tabela(camada, tabela)
 except duckdb.Error as erro:
     st.error(f"Não foi possível consultar a tabela: {erro}")
     st.stop()
 
-st.subheader(f"{selecao[0]}.{selecao[1]}")
+st.subheader(f"{camada}.{tabela}")
 resumo_total, resumo_colunas = st.columns(2)
 resumo_total.metric("Registros", f"{total_registros:,}".replace(",", "."))
 resumo_colunas.metric("Colunas", len(colunas))
