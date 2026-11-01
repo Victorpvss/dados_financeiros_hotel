@@ -1,0 +1,50 @@
+# Projeto de análise de dados financeiros
+
+## Servidor MCP DuckDB
+
+O servidor MCP local está configurado para consultar `dados_financeiros.duckdb`.
+Ele abre a conexão com `read_only=True` e só aceita uma instrução `SELECT` por
+chamada. Comandos de escrita, DDL, `ATTACH` e múltiplas instruções são recusados
+pelo servidor. O limite padrão é 100 linhas, configurável até 500.
+
+As ferramentas disponíveis são:
+
+- `listar_tabelas`: lista tabelas e views dos schemas `raw` e `refined`.
+- `descrever_tabela`: mostra nomes e tipos das colunas de uma tabela permitida.
+- `consultar_select`: executa uma consulta `SELECT` e retorna a SQL original,
+  a SQL limitada executada e os resultados.
+
+### Claude Code
+
+O arquivo `.mcp.json` registra o servidor como processo `stdio`. O Claude Code
+deve solicitar interação humana em cada chamada; revise a SQL mostrada na
+solicitação antes de aprová-la. No Claude Code, use `/mcp` para conferir a
+conexão e as ferramentas carregadas.
+
+### Codex
+
+O arquivo `.codex/config.toml` define `default_tools_approval_mode = "prompt"`,
+para pedir aprovação em cada chamada. O projeto precisa estar em uma pasta
+confiável para carregar configurações MCP locais. Use `/mcp` no Codex TUI ou
+`codex mcp list` no terminal para verificar o servidor.
+
+### Fonte da verdade das transformações
+
+O MCP é um laboratório de leitura. Uma consulta feita no chat não persiste como
+transformação. Qualquer regra aprovada e durável deve ser implementada no
+pipeline, por exemplo em `pipeline/transformar_refined.py`, e a saída refinada
+deve ser recriável a partir dos dados de origem. Nunca use o MCP para criar ou
+alterar tabelas.
+
+### Inicialização e testes
+
+O host MCP inicia o servidor automaticamente. Para verificar manualmente a
+camada de segurança e as respostas:
+
+```powershell
+uv run pytest tests/test_mcp_duckdb.py
+uv run ruff check pipeline/mcp_duckdb.py tests/test_mcp_duckdb.py
+```
+
+O caminho do arquivo pode ser sobrescrito com `DUCKDB_PATH`; se não definido,
+o servidor usa o banco na raiz do projeto.

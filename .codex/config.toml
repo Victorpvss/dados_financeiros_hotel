@@ -1,0 +1,8 @@
+[mcp_servers.duckdb_readonly]
+command = "uv"
+args = ["run", "--directory", ".", "python", "-m", "pipeline.mcp_duckdb"]
+cwd = "."
+startup_timeout_sec = 15
+tool_timeout_sec = 60
+default_tools_approval_mode = "prompt"
+enabled = true

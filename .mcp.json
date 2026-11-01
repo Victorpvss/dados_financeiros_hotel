@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "duckdb-readonly": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        ".",
+        "python",
+        "-m",
+        "pipeline.mcp_duckdb"
+      ]
+    }
+  }
+}
