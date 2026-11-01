@@ -45,20 +45,33 @@ def test_arquivo_select_cria_mart_e_retorna_contagem(tmp_path) -> None:
     assert consultar_tabelas_marts(caminho_banco) == ["teste"]
 
 
-def test_arquivo_removido_remove_mart_da_execucao_anterior(tmp_path) -> None:
+def test_arquivo_removido_remove_mart_com_outros_sql_presentes(tmp_path) -> None:
     caminho_banco = tmp_path / "teste.duckdb"
     pasta_sql = tmp_path / "sql" / "marts"
     pasta_sql.mkdir(parents=True)
-    arquivo = pasta_sql / "00_teste.sql"
-    arquivo.write_text("SELECT 1 AS x", encoding="utf-8")
+    arquivo_removido = pasta_sql / "00_teste.sql"
+    arquivo_removido.write_text("SELECT 1 AS x", encoding="utf-8")
+    (pasta_sql / "01_outro.sql").write_text("SELECT 2 AS x", encoding="utf-8")
     preparar_banco(caminho_banco)
     materializar_marts.executar_marts(caminho_banco, pasta_sql)
 
-    arquivo.unlink()
+    arquivo_removido.unlink()
+    materializar_marts.executar_marts(caminho_banco, pasta_sql)
+
+    assert consultar_tabelas_marts(caminho_banco) == ["outro"]
+
+
+def test_pasta_sem_arquivos_falha_sem_alterar_marts(tmp_path) -> None:
+    caminho_banco = tmp_path / "teste.duckdb"
+    pasta_sql = tmp_path / "sql" / "marts"
+    pasta_sql.mkdir(parents=True)
+    preparar_banco(caminho_banco)
+    criar_schema_marts_anterior(caminho_banco)
+
     with pytest.raises(materializar_marts.ErroMaterializacao, match="Nenhum arquivo"):
         materializar_marts.executar_marts(caminho_banco, pasta_sql)
 
-    assert consultar_tabelas_marts(caminho_banco) == ["teste"]
+    assert consultar_tabelas_marts(caminho_banco) == ["anterior"]
 
 
 def test_sql_invalido_faz_rollback_e_identifica_arquivo(tmp_path) -> None:
@@ -91,6 +104,24 @@ def test_nome_sem_prefixo_e_rejeitado_sem_alterar_marts(tmp_path) -> None:
     with pytest.raises(
         materializar_marts.ErroMaterializacao,
         match="sem prefixo NN_.*teste.sql",
+    ):
+        materializar_marts.executar_marts(caminho_banco, pasta_sql)
+
+    assert consultar_tabelas_marts(caminho_banco) == ["anterior"]
+
+
+def test_nomes_de_tabela_duplicados_sao_rejeitados(tmp_path) -> None:
+    caminho_banco = tmp_path / "teste.duckdb"
+    pasta_sql = tmp_path / "sql" / "marts"
+    pasta_sql.mkdir(parents=True)
+    (pasta_sql / "00_teste.sql").write_text("SELECT 1", encoding="utf-8")
+    (pasta_sql / "01_teste.sql").write_text("SELECT 2", encoding="utf-8")
+    preparar_banco(caminho_banco)
+    criar_schema_marts_anterior(caminho_banco)
+
+    with pytest.raises(
+        materializar_marts.ErroMaterializacao,
+        match="nome de tabela duplicado.*00_teste.sql, 01_teste.sql",
     ):
         materializar_marts.executar_marts(caminho_banco, pasta_sql)
 

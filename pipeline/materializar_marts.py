@@ -98,9 +98,11 @@ def descobrir_marts(pasta_sql: Path) -> list[tuple[Path, str]]:
 
 
 def executar_marts(
-    caminho_banco: Path = CAMINHO_BANCO,
-    pasta_sql: Path = PASTA_SQL,
+    caminho_banco: Path | None = None,
+    pasta_sql: Path | None = None,
 ) -> list[tuple[str, int]]:
+    caminho_banco = caminho_banco or CAMINHO_BANCO
+    pasta_sql = pasta_sql or PASTA_SQL
     if not caminho_banco.is_file():
         raise ErroMaterializacao(f"Banco DuckDB não encontrado: {caminho_banco}")
 
