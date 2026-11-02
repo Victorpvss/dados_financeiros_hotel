@@ -6,4 +6,5 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 *.duckdb.wal
+dados_financeiros.duckdb
 venv/

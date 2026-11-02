@@ -45,6 +45,58 @@ PROFISSOES = (
     "Produtor Rural", "Analista", "Aposentado", "Tecnico", "Advogado",
 )
 ESTADOS_CIVIS = ("Solteiro", "Casado", "Divorciado", "Uniao Estavel", "Viuvo")
+LOCALIDADES_POR_ESTADO = {
+    "BA": (
+        "Nordeste",
+        (
+            "Salvador",
+            "Feira de Santana",
+            "Vitoria da Conquista",
+            "Ilheus",
+            "Juazeiro",
+        ),
+    ),
+    "PE": (
+        "Nordeste",
+        (
+            "Recife",
+            "Caruaru",
+            "Petrolina",
+            "Olinda",
+            "Garanhuns",
+        ),
+    ),
+    "MG": (
+        "Sudeste",
+        (
+            "Belo Horizonte",
+            "Uberlandia",
+            "Juiz de Fora",
+            "Montes Claros",
+            "Pouso Alegre",
+        ),
+    ),
+    "RJ": (
+        "Sudeste",
+        (
+            "Rio de Janeiro",
+            "Niteroi",
+            "Petropolis",
+            "Volta Redonda",
+            "Campos dos Goytacazes",
+        ),
+    ),
+    "SP": (
+        "Sudeste",
+        (
+            "Sao Paulo",
+            "Campinas",
+            "Santos",
+            "Ribeirao Preto",
+            "Sao Jose dos Campos",
+        ),
+    ),
+}
 TIPOS_CONTA_PF = ("conta_corrente_pf", "conta_poupanca", "conta_salario")
 TIPOS_CONTA_PJ = ("conta_corrente_pj", "conta_poupanca_pj")
 MOTIVOS = (
@@ -170,7 +222,27 @@ def gerar_dados_sinteticos(
     agora_inicio = datetime(2025, 1, 1)
     agora_fim = datetime(2026, 10, 31, 23, 59, 59)
 
-    for agencia in agencias:
+    estados_agencias = [
+        estado
+        for estado in LOCALIDADES_POR_ESTADO
+        for _ in range(len(agencias) // len(LOCALIDADES_POR_ESTADO))
+    ]
+    estados_agencias.extend(
+        gerador.choices(
+            list(LOCALIDADES_POR_ESTADO),
+            k=len(agencias) - len(estados_agencias),
+        )
+    )
+    gerador.shuffle(estados_agencias)
+    indice_cidade_por_estado = dict.fromkeys(LOCALIDADES_POR_ESTADO, 0)
+
+    for agencia, estado in zip(agencias, estados_agencias, strict=True):
+        regiao, cidades = LOCALIDADES_POR_ESTADO[estado]
+        indice_cidade = indice_cidade_por_estado[estado]
+        agencia["estado"] = estado
+        agencia["regiao"] = regiao
+        agencia["cidade"] = cidades[indice_cidade % len(cidades)]
+        indice_cidade_por_estado[estado] += 1
         agencia["data_abertura"] = sortear_data(
             gerador, date(2001, 1, 1), date(2022, 12, 31)
         ).isoformat()

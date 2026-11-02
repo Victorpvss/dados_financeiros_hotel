@@ -50,8 +50,10 @@ uv run python -m pipeline.gerar_dados_sinteticos
 O gerador atualiza `fonte_dados/` e `raw/` com a mesma semente fixa
 (`20261102`), preserva cabeçalhos, contagens e identificadores, e produz os
 mesmos valores a cada execução para facilitar a reprodução dos resultados.
-As aplicações de investimento incluem sazonalidade e meses de campanha; o
-indicador mensal apresenta médias móveis de três meses para quantidade e valor.
+As agências fictícias ficam distribuídas entre BA, MG, PE, RJ e SP, e os
+cooperados herdam a localização da agência vinculada. As aplicações de
+investimento incluem sazonalidade e meses de campanha; o indicador mensal
+apresenta médias móveis de três meses para quantidade e valor.
 Em seguida, execute novamente o pipeline na ordem acima para atualizar o banco,
 os arquivos refined e os indicadores.
 
@@ -73,6 +75,21 @@ Interface Streamlit para navegar pelos schemas e visualizar tabelas:
 ```powershell
 uv run streamlit run ui.py
 ```
+
+### Verificação periódica do painel publicado
+
+O workflow `.github/workflows/dashboard-health-check.yml` acessa a URL pública
+do dashboard por HTTPS a cada 30 minutos e também pode ser iniciado manualmente
+na aba **Actions** do GitHub. Ele não hospeda o Streamlit: o painel precisa estar
+publicado em um serviço acessível pela internet. O endereço local
+`http://127.0.0.1:8501` não pode ser acessado pelo runner do GitHub.
+
+Depois de publicar o app, configure a variável de repositório `DASHBOARD_URL` em
+**Settings > Secrets and variables > Actions > Variables**, usando a URL HTTPS
+completa. Para a execução agendada começar, o workflow precisa estar na branch
+padrão do repositório. O agendamento do GitHub pode atrasar e não garante que o
+provedor mantenha o app acordado; o workflow apenas verifica disponibilidade e
+marca a execução como falha se a requisição não retornar HTTP de sucesso.
 
 ## Testes e lint
 
