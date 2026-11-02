@@ -40,6 +40,21 @@ uv run python -m pipeline.transformar_refined
 uv run python -m pipeline.materializar_marts
 ```
 
+Para regenerar os dados fictícios com distribuições mais variadas, execute
+antes da ingestão:
+
+```powershell
+uv run python -m pipeline.gerar_dados_sinteticos
+```
+
+O gerador atualiza `fonte_dados/` e `raw/` com a mesma semente fixa
+(`20261102`), preserva cabeçalhos, contagens e identificadores, e produz os
+mesmos valores a cada execução para facilitar a reprodução dos resultados.
+As aplicações de investimento incluem sazonalidade e meses de campanha; o
+indicador mensal apresenta médias móveis de três meses para quantidade e valor.
+Em seguida, execute novamente o pipeline na ordem acima para atualizar o banco,
+os arquivos refined e os indicadores.
+
 O banco `dados_financeiros.duckdb` é criado ou atualizado no diretório raiz.
 As consultas em `sql/marts/` são materializadas como tabelas no schema `marts`.
 O materializador recria esse schema em uma transação; portanto, alterações
@@ -76,19 +91,19 @@ uv run ruff check .
 - `sql/marts/`: consultas dos indicadores analíticos.
 - `tests/`: testes automatizados.
 
-O modelo representa um fluxo analítico, não um sistema transacional de vendas.
-As sete tabelas de origem representam agências, atendimentos, contas correntes,
-contratos de crédito, cooperados, investimentos e lançamentos contábeis. As
-relações de negócio são expressas pelos identificadores usados nos `JOINs` das
-consultas.
+O modelo representa dados financeiros de uma cooperativa, não um sistema de
+vendas. As sete tabelas de origem representam agências, atendimentos, contas
+correntes, contratos de crédito, cooperados, investimentos e lançamentos
+contábeis.
 
-As camadas `raw` e `refined` preservam a estrutura dos dados recebidos e a
-transformação de tipos, enquanto `marts` contém resultados derivados e
-recriáveis. Por esse motivo, as tabelas são carregadas sem declarar constraints
-de `PRIMARY KEY` e `FOREIGN KEY`; a existência de identificadores nas fontes não
-significa que o banco imponha essas constraints. Este desenho é apropriado ao
-pipeline analítico, mas não equivale a um modelo relacional transacional com
-integridade referencial aplicada.
+A ingestão impõe chaves primárias nas sete tabelas de `raw` e chaves estrangeiras
+para as relações existentes entre agências, cooperados, contas, atendimentos,
+contratos, investimentos e lançamentos. A carga é transacional: IDs duplicados
+ou referências inexistentes cancelam a ingestão sem substituir a versão válida
+anterior. As colunas raw continuam textuais para preservar os valores de origem.
+`refined` aplica tipos e lê arquivos Parquet por meio de views; os marts são
+resultados derivados e recriáveis. `produto_credito_id` permanece sem FK porque
+este conjunto de dados não contém uma tabela de produtos de crédito.
 
 ## Escolha do banco e compatibilidade com o desafio
 

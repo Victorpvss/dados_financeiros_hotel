@@ -40,7 +40,11 @@ SELECT
     cooperados_investidores,
     valor_total_aplicado,
     ticket_medio,
-    AVG(quantidade_investimentos) OVER () AS media_investimentos_por_mes,
-    AVG(valor_total_aplicado) OVER () AS valor_medio_aplicado_por_mes
+    AVG(quantidade_investimentos) OVER (
+        ORDER BY mes ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+    ) AS media_investimentos_por_mes,
+    AVG(valor_total_aplicado) OVER (
+        ORDER BY mes ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+    ) AS valor_medio_aplicado_por_mes
 FROM base_mensal
 ORDER BY mes;

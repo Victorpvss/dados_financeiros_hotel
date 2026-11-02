@@ -40,8 +40,15 @@ def carregar_tabela(schema: str, tabela: str):
             """,
             [schema, tabela],
         ).fetchall()
+        ordenacao = ""
+        if schema == "marts" and tabela == "movimentacao_por_conta":
+            ordenacao = (
+                ' ORDER BY "valor_total_lancamentos" DESC, '
+                '"quantidade_lancamentos" DESC, "conta_id" ASC'
+            )
         dados = conexao.execute(
-            f"SELECT * FROM {nome_completo} LIMIT {LIMITE_PREVIA}"
+            f"SELECT * FROM {nome_completo}{ordenacao} "
+            f"LIMIT {LIMITE_PREVIA}"
         ).fetchdf()
     return total_registros, colunas, dados
 
