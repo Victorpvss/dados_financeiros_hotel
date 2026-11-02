@@ -47,8 +47,14 @@ def consultar_indicador(
         total = conexao.execute(
             f"SELECT COUNT(*) FROM {tabela_sql}"
         ).fetchone()[0]
+        ordenacao = ""
+        if nome == "movimentacao_por_conta":
+            ordenacao = (
+                ' ORDER BY "valor_total_lancamentos" DESC, '
+                '"quantidade_lancamentos" DESC, "conta_id" ASC'
+            )
         resultado = conexao.execute(
-            f"SELECT * FROM {tabela_sql} LIMIT ? OFFSET ?",
+            f"SELECT * FROM {tabela_sql}{ordenacao} LIMIT ? OFFSET ?",
             [limite, deslocamento],
         )
         colunas = [coluna[0] for coluna in resultado.description]

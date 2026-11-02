@@ -18,4 +18,7 @@ JOIN refined.cooperados AS c
     ON c.cooperado_id = cc.cooperado_id
 LEFT JOIN movimentacao AS m
     ON m.conta_id = cc.conta_id
-ORDER BY valor_total_lancamentos DESC;
+ORDER BY
+    valor_total_lancamentos DESC,
+    quantidade_lancamentos DESC,
+    cc.conta_id ASC;
