@@ -40,7 +40,7 @@ def clausulas_filtro(
 def carregar_kpis(
     estado: str | None = None,
     inicio_periodo: pd.Timestamp | None = None,
-) -> dict[str, float]:
+) -> dict[str, float | int]:
     filtro_investimentos, parametros_investimentos = clausulas_filtro(
         "i.data_aplicacao", "c.estado", inicio_periodo, estado
     )
@@ -64,7 +64,8 @@ def carregar_kpis(
     satisfacao = executar_consulta(
         f"""
         SELECT
-            AVG(t.nota_satisfacao) AS media_satisfacao
+            AVG(t.nota_satisfacao) AS media_satisfacao,
+            COUNT(t.nota_satisfacao) AS quantidade_avaliacoes
         FROM refined.atendimentos_relacionamento AS t
         JOIN refined.agencias AS a
             ON a.agencia_id = t.agencia_id
@@ -95,9 +96,63 @@ def carregar_kpis(
         "valor_atual": float(investimento["valor_atual"] or 0),
         "quantidade_aplicacoes": int(investimento["quantidade_aplicacoes"] or 0),
         "media_satisfacao": float(satisfacao["media_satisfacao"] or 0),
+        "quantidade_avaliacoes": int(satisfacao["quantidade_avaliacoes"] or 0),
         "valor_movimentado": float(movimentacao["valor_movimentado"] or 0),
         "quantidade_lancamentos": int(movimentacao["quantidade_lancamentos"] or 0),
     }
+
+
+def carregar_data_final(estado: str | None = None) -> pd.Timestamp | None:
+    filtro_investimentos, parametros_investimentos = clausulas_filtro(
+        "i.data_aplicacao", "c.estado", None, estado
+    )
+    filtro_satisfacao, parametros_satisfacao = clausulas_filtro(
+        "t.data_abertura", "a.estado", None, estado
+    )
+    filtro_movimentacao, parametros_movimentacao = clausulas_filtro(
+        "l.data_lancamento", "a.estado", None, estado
+    )
+    resultado = executar_consulta(
+        f"""
+        SELECT MAX(data_final) AS data_final
+        FROM (
+            SELECT MAX(i.data_aplicacao)::DATE AS data_final
+            FROM refined.investimentos AS i
+            JOIN refined.cooperados AS c
+                ON c.cooperado_id = i.cooperado_id
+            {filtro_investimentos}
+            UNION ALL
+            SELECT MAX(t.data_abertura)::DATE AS data_final
+            FROM refined.atendimentos_relacionamento AS t
+            JOIN refined.agencias AS a
+                ON a.agencia_id = t.agencia_id
+            {filtro_satisfacao}
+            UNION ALL
+            SELECT MAX(l.data_lancamento)::DATE AS data_final
+            FROM refined.lancamentos_contabeis AS l
+            JOIN refined.agencias AS a
+                ON a.agencia_id = l.agencia_id
+            {filtro_movimentacao}
+        )
+        """,
+        parametros_investimentos
+        + parametros_satisfacao
+        + parametros_movimentacao,
+    )
+    data_final = resultado.iloc[0]["data_final"]
+    return pd.Timestamp(data_final) if pd.notna(data_final) else None
+
+
+def listar_estados_agencias() -> list[str]:
+    dados = executar_consulta(
+        """
+        SELECT DISTINCT estado
+        FROM refined.agencias
+        WHERE estado IS NOT NULL
+        ORDER BY estado
+        """
+    )
+    return dados["estado"].tolist()
 
 
 def carregar_serie_mensal(estado: str | None = None) -> pd.DataFrame:
@@ -370,12 +425,7 @@ def exibir_dashboard() -> None:
     st.title("Painel financeiro")
     st.caption("Visão consolidada de investimentos, relacionamento e movimentações")
 
-    satisfacao_completa = carregar_satisfacao()
-    if satisfacao_completa.empty:
-        st.warning("Os indicadores ainda não foram materializados. Execute o pipeline de marts.")
-        return
-
-    estados = sorted(satisfacao_completa["estado"].dropna().unique().tolist())
+    estados = listar_estados_agencias()
     filtros = st.columns([2, 3, 5])
     estado = filtros[0].selectbox("Estado das agências", ["Todos", *estados])
     periodo = filtros[1].selectbox(
@@ -386,49 +436,58 @@ def exibir_dashboard() -> None:
         "Últimos 6 meses": 6,
         "Últimos 12 meses": 12,
     }
-    serie = carregar_serie_mensal(None if estado == "Todos" else estado)
-    if serie.empty:
-        st.info("Não há investimentos para a combinação de filtros selecionada.")
+    estado_filtro = None if estado == "Todos" else estado
+    data_final = carregar_data_final(estado_filtro)
+    if data_final is None:
+        st.info("Não há dados para a combinação de filtros selecionada.")
         return
 
     inicio_periodo = None
     if periodo in meses_por_periodo:
-        data_final = serie["mes"].max()
-        inicio_periodo = data_final - pd.DateOffset(
+        inicio_periodo = data_final.to_period("M").to_timestamp() - pd.DateOffset(
             months=meses_por_periodo[periodo] - 1
         )
+    serie = carregar_serie_mensal(estado_filtro)
     serie_filtrada = serie.copy()
     if inicio_periodo is not None:
         serie_filtrada = serie_filtrada[
             serie_filtrada["mes"] >= inicio_periodo
         ]
 
-    estado_filtro = None if estado == "Todos" else estado
     satisfacao = carregar_satisfacao(estado_filtro, inicio_periodo)
     kpis = carregar_kpis(estado_filtro, inicio_periodo)
 
     variacao_carteira = (
         100 * (kpis["valor_atual"] - kpis["valor_aplicado"])
         / kpis["valor_aplicado"]
-        if kpis["valor_aplicado"]
-        else 0
+        if kpis["quantidade_aplicacoes"] and kpis["valor_aplicado"]
+        else None
     )
     metricas = st.columns(4)
     metricas[0].metric(
-        "Aplicado · R$ mi", formatar_milhoes(kpis["valor_aplicado"])
+        "Aplicado · R$ mi",
+        formatar_milhoes(kpis["valor_aplicado"])
+        if kpis["quantidade_aplicacoes"]
+        else "Sem dados",
     )
     metricas[1].metric(
         "Carteira · R$ mi",
-        formatar_milhoes(kpis["valor_atual"]),
-        f"{variacao_carteira:+.1f}%",
+        formatar_milhoes(kpis["valor_atual"])
+        if kpis["quantidade_aplicacoes"]
+        else "Sem dados",
+        f"{variacao_carteira:+.1f}%" if variacao_carteira is not None else None,
     )
     metricas[2].metric(
         "Satisfação",
-        f"{kpis['media_satisfacao']:.2f}/10",
+        f"{kpis['media_satisfacao']:.2f}/10"
+        if kpis["quantidade_avaliacoes"]
+        else "Sem dados",
     )
     metricas[3].metric(
         "Mov. · R$ mi",
-        formatar_milhoes(kpis["valor_movimentado"]),
+        formatar_milhoes(kpis["valor_movimentado"])
+        if kpis["quantidade_lancamentos"]
+        else "Sem dados",
     )
     st.caption(
         "Os filtros afetam todos os indicadores. Carteira mostra o valor atual "
@@ -437,80 +496,92 @@ def exibir_dashboard() -> None:
 
     st.divider()
     st.subheader("Investimentos ao longo do tempo")
-    graficos_tempo = st.columns(2)
-    with graficos_tempo[0]:
-        st.caption("Aplicações por mês e média móvel de 3 meses")
-        grafico_quantidade = serie_filtrada.set_index("mes")[[
-            "quantidade_investimentos",
-            "media_investimentos_por_mes",
-        ]]
-        exibir_linhas(
-            grafico_quantidade,
-            [
-                ("quantidade_investimentos", "Aplicações", "#0d7c66"),
-                ("media_investimentos_por_mes", "Média móvel (3m)", "#e29b45"),
-            ],
-            "Aplicações",
-        )
-    with graficos_tempo[1]:
-        st.caption("Volume aplicado e média móvel de 3 meses")
-        grafico_valor = serie_filtrada.set_index("mes")[[
-            "valor_total_aplicado",
-            "valor_medio_aplicado_por_mes",
-        ]]
-        exibir_linhas(
-            grafico_valor,
-            [
-                ("valor_total_aplicado", "Valor aplicado", "#277da1"),
-                ("valor_medio_aplicado_por_mes", "Média móvel (3m)", "#e29b45"),
-            ],
-            "Reais (R$)",
-        )
+    if serie_filtrada.empty:
+        st.info("Sem investimentos no recorte selecionado.")
+    else:
+        graficos_tempo = st.columns(2)
+        with graficos_tempo[0]:
+            st.caption("Aplicações por mês e média móvel de 3 meses")
+            grafico_quantidade = serie_filtrada.set_index("mes")[[
+                "quantidade_investimentos",
+                "media_investimentos_por_mes",
+            ]]
+            exibir_linhas(
+                grafico_quantidade,
+                [
+                    ("quantidade_investimentos", "Aplicações", "#0d7c66"),
+                    ("media_investimentos_por_mes", "Média móvel (3m)", "#e29b45"),
+                ],
+                "Aplicações",
+            )
+        with graficos_tempo[1]:
+            st.caption("Volume aplicado e média móvel de 3 meses")
+            grafico_valor = serie_filtrada.set_index("mes")[[
+                "valor_total_aplicado",
+                "valor_medio_aplicado_por_mes",
+            ]]
+            exibir_linhas(
+                grafico_valor,
+                [
+                    ("valor_total_aplicado", "Valor aplicado", "#277da1"),
+                    ("valor_medio_aplicado_por_mes", "Média móvel (3m)", "#e29b45"),
+                ],
+                "Reais (R$)",
+            )
 
     st.divider()
     st.subheader("Agências e produtos")
     graficos_categoria = st.columns([1.2, 1])
     with graficos_categoria[0]:
         st.caption("Satisfação média por agência")
-        dados_agencias = satisfacao.nlargest(
-            10, "media_satisfacao"
-        ).sort_values("media_satisfacao").set_index("nome_agencia")
-        exibir_barras(dados_agencias, "media_satisfacao", "#0d7c66")
+        if satisfacao.empty:
+            st.info("Sem avaliações de satisfação no recorte selecionado.")
+        else:
+            dados_agencias = satisfacao.nlargest(
+                10, "media_satisfacao"
+            ).sort_values("media_satisfacao").set_index("nome_agencia")
+            exibir_barras(dados_agencias, "media_satisfacao", "#0d7c66")
     with graficos_categoria[1]:
         st.caption("Valor aplicado por tipo de investimento")
         por_tipo = carregar_investimentos_por_tipo(estado_filtro, inicio_periodo)
-        dados_tipos = por_tipo.set_index("tipo_investimento")
-        exibir_barras(dados_tipos, "valor_aplicado", "#277da1")
+        if por_tipo.empty:
+            st.info("Sem investimentos no recorte selecionado.")
+        else:
+            dados_tipos = por_tipo.set_index("tipo_investimento")
+            exibir_barras(dados_tipos, "valor_aplicado", "#277da1")
 
     st.divider()
     st.subheader("Contas com maior movimentação")
     movimentacao = carregar_movimentacao(estado_filtro, inicio_periodo)
-    movimentacao_exibicao = movimentacao.copy()
-    movimentacao_exibicao["valor_total_lancamentos"] = movimentacao_exibicao[
-        "valor_total_lancamentos"
-    ].astype(float)
-    movimentacao_exibicao["conta_exibicao"] = (
-        movimentacao_exibicao["numero_conta"]
-        + " · "
-        + movimentacao_exibicao["nome_completo"]
-    )
-    tabela_grafico = movimentacao_exibicao.set_index("conta_exibicao")[[
-        "valor_total_lancamentos"
-    ]].sort_values("valor_total_lancamentos", ascending=True)
-    exibir_barras(tabela_grafico, "valor_total_lancamentos", "#d87855")
-    st.dataframe(
-        movimentacao,
-        width="stretch",
-        hide_index=True,
-        column_config={
-            "valor_total_lancamentos": st.column_config.NumberColumn(
-                "Total movimentado", format="R$ %.2f"
-            ),
-            "quantidade_lancamentos": st.column_config.NumberColumn(
-                "Lançamentos", format="localized"
-            ),
-        },
-    )
+    if movimentacao.empty:
+        st.info("Sem movimentações no recorte selecionado.")
+    else:
+        movimentacao_exibicao = movimentacao.copy()
+        movimentacao_exibicao["valor_total_lancamentos"] = movimentacao_exibicao[
+            "valor_total_lancamentos"
+        ].astype(float)
+        movimentacao_exibicao["conta_exibicao"] = (
+            movimentacao_exibicao["numero_conta"]
+            + " · "
+            + movimentacao_exibicao["nome_completo"]
+        )
+        tabela_grafico = movimentacao_exibicao.set_index("conta_exibicao")[[
+            "valor_total_lancamentos"
+        ]].sort_values("valor_total_lancamentos", ascending=True)
+        exibir_barras(tabela_grafico, "valor_total_lancamentos", "#d87855")
+        st.dataframe(
+            movimentacao,
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "valor_total_lancamentos": st.column_config.NumberColumn(
+                    "Total movimentado", format="R$ %.2f"
+                ),
+                "quantidade_lancamentos": st.column_config.NumberColumn(
+                    "Lançamentos", format="localized"
+                ),
+            },
+        )
 
 
 def exibir_explorador(tabelas: list[tuple[str, str]]) -> None:
