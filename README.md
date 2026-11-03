@@ -1,5 +1,8 @@
 # Projeto de Análise de Dados Financeiros
 
+**Dashboard público:** ainda não publicado. Após configurar o deploy, substitua
+este aviso pela URL `https://<seu-app>.streamlit.app`.
+
 Pipeline de dados financeiros de uma cooperativa, da ingestão de arquivos CSV
 até a geração de indicadores analíticos consultáveis no DuckDB. O repositório
 também inclui um menu de terminal, uma interface Streamlit e testes automatizados.
@@ -76,13 +79,33 @@ Interface Streamlit para navegar pelos schemas e visualizar tabelas:
 uv run streamlit run ui.py
 ```
 
+Por padrão, o app fica disponível apenas na máquina local em
+`http://localhost:8501`. Esse endereço não é acessível por outras pessoas nem
+quando o repositório é aberto no GitHub.
+
+### Publicar para acesso pela internet
+
+O GitHub armazena o código, mas não hospeda aplicações Streamlit. Para obter um
+link público, publique o app no [Streamlit Community Cloud](https://share.streamlit.io/):
+
+1. Envie o repositório para o GitHub.
+2. No Streamlit Community Cloud, conecte sua conta GitHub e crie um app
+  selecionando este repositório, a branch desejada e `ui.py` como arquivo
+  principal.
+3. Na primeira inicialização, o app cria o DuckDB e os indicadores a partir dos
+  CSVs versionados em `raw/`; o arquivo do banco não precisa ser enviado ao GitHub.
+4. Copie a URL pública gerada (com final `streamlit.app`) para o aviso
+  **Dashboard público** no início deste README.
+
+Depois dessa configuração inicial, novos pushes na branch publicada atualizam o
+app automaticamente. O GitHub Pages não executa aplicações Streamlit.
+
 ### Verificação periódica do painel publicado
 
 O workflow `.github/workflows/dashboard-health-check.yml` acessa a URL pública
 do dashboard por HTTPS a cada 30 minutos e também pode ser iniciado manualmente
-na aba **Actions** do GitHub. Ele não hospeda o Streamlit: o painel precisa estar
-publicado em um serviço acessível pela internet. O endereço local
-`http://127.0.0.1:8501` não pode ser acessado pelo runner do GitHub.
+na aba **Actions** do GitHub. Ele apenas monitora a disponibilidade; não hospeda
+nem publica o Streamlit.
 
 Depois de publicar o app, configure a variável de repositório `DASHBOARD_URL` em
 **Settings > Secrets and variables > Actions > Variables**, usando a URL HTTPS

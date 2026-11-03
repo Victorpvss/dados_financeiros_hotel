@@ -5,12 +5,24 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import streamlit as st
 
+from pipeline.ingestao import executar_ingestao
+from pipeline.materializar_marts import executar_marts
+from pipeline.transformar_refined import executar_transformacao
+
 CAMINHO_BANCO = Path(__file__).resolve().parent / "dados_financeiros.duckdb"
 LIMITE_PREVIA = 500
 
 
 def citar_identificador(nome: str) -> str:
     return '"' + nome.replace('"', '""') + '"'
+
+
+def preparar_banco_se_necessario() -> None:
+    if CAMINHO_BANCO.is_file():
+        return
+    executar_ingestao()
+    executar_transformacao()
+    executar_marts()
 
 
 def executar_consulta(sql: str, parametros: list | None = None) -> pd.DataFrame:
@@ -39,10 +51,12 @@ def clausulas_filtro(
 
 def carregar_kpis(
     estado: str | None = None,
-    inicio_periodo: pd.Timestamp | None = None,
+    inicio_investimentos: pd.Timestamp | None = None,
+    inicio_satisfacao: pd.Timestamp | None = None,
+    inicio_movimentacao: pd.Timestamp | None = None,
 ) -> dict[str, float | int]:
     filtro_investimentos, parametros_investimentos = clausulas_filtro(
-        "i.data_aplicacao", "c.estado", inicio_periodo, estado
+        "i.data_aplicacao", "c.estado", inicio_investimentos, estado
     )
     investimento = executar_consulta(
         f"""
@@ -59,7 +73,7 @@ def carregar_kpis(
     ).iloc[0]
 
     filtro_satisfacao, parametros_satisfacao = clausulas_filtro(
-        "t.data_abertura", "a.estado", inicio_periodo, estado
+        "t.data_abertura", "a.estado", inicio_satisfacao, estado
     )
     satisfacao = executar_consulta(
         f"""
@@ -77,7 +91,7 @@ def carregar_kpis(
     ).iloc[0]
 
     filtro_movimentacao, parametros_movimentacao = clausulas_filtro(
-        "l.data_lancamento", "a.estado", inicio_periodo, estado
+        "l.data_lancamento", "a.estado", inicio_movimentacao, estado
     )
     movimentacao = executar_consulta(
         f"""
@@ -102,7 +116,9 @@ def carregar_kpis(
     }
 
 
-def carregar_data_final(estado: str | None = None) -> pd.Timestamp | None:
+def carregar_datas_finais(
+    estado: str | None = None,
+) -> dict[str, pd.Timestamp | None]:
     filtro_investimentos, parametros_investimentos = clausulas_filtro(
         "i.data_aplicacao", "c.estado", None, estado
     )
@@ -114,21 +130,24 @@ def carregar_data_final(estado: str | None = None) -> pd.Timestamp | None:
     )
     resultado = executar_consulta(
         f"""
-        SELECT MAX(data_final) AS data_final
+        SELECT fonte, data_final
         FROM (
-            SELECT MAX(i.data_aplicacao)::DATE AS data_final
+            SELECT 'investimentos' AS fonte,
+                   MAX(i.data_aplicacao)::DATE AS data_final
             FROM refined.investimentos AS i
             JOIN refined.cooperados AS c
                 ON c.cooperado_id = i.cooperado_id
             {filtro_investimentos}
             UNION ALL
-            SELECT MAX(t.data_abertura)::DATE AS data_final
+            SELECT 'satisfacao' AS fonte,
+                   MAX(t.data_abertura)::DATE AS data_final
             FROM refined.atendimentos_relacionamento AS t
             JOIN refined.agencias AS a
                 ON a.agencia_id = t.agencia_id
             {filtro_satisfacao}
             UNION ALL
-            SELECT MAX(l.data_lancamento)::DATE AS data_final
+            SELECT 'movimentacao' AS fonte,
+                   MAX(l.data_lancamento)::DATE AS data_final
             FROM refined.lancamentos_contabeis AS l
             JOIN refined.agencias AS a
                 ON a.agencia_id = l.agencia_id
@@ -139,8 +158,21 @@ def carregar_data_final(estado: str | None = None) -> pd.Timestamp | None:
         + parametros_satisfacao
         + parametros_movimentacao,
     )
-    data_final = resultado.iloc[0]["data_final"]
-    return pd.Timestamp(data_final) if pd.notna(data_final) else None
+    return {
+        fonte: pd.Timestamp(data_final) if pd.notna(data_final) else None
+        for fonte, data_final in resultado.itertuples(index=False, name=None)
+    }
+
+
+def calcular_inicio_periodo(
+    data_final: pd.Timestamp | None,
+    quantidade_meses: int | None,
+) -> pd.Timestamp | None:
+    if data_final is None or quantidade_meses is None:
+        return None
+    return data_final.to_period("M").to_timestamp() - pd.DateOffset(
+        months=quantidade_meses - 1
+    )
 
 
 def listar_estados_agencias() -> list[str]:
@@ -437,25 +469,35 @@ def exibir_dashboard() -> None:
         "Últimos 12 meses": 12,
     }
     estado_filtro = None if estado == "Todos" else estado
-    data_final = carregar_data_final(estado_filtro)
-    if data_final is None:
+    datas_finais = carregar_datas_finais(estado_filtro)
+    if not any(datas_finais.values()):
         st.info("Não há dados para a combinação de filtros selecionada.")
         return
 
-    inicio_periodo = None
-    if periodo in meses_por_periodo:
-        inicio_periodo = data_final.to_period("M").to_timestamp() - pd.DateOffset(
-            months=meses_por_periodo[periodo] - 1
-        )
+    quantidade_meses = meses_por_periodo.get(periodo)
+    inicio_investimentos = calcular_inicio_periodo(
+        datas_finais["investimentos"], quantidade_meses
+    )
+    inicio_satisfacao = calcular_inicio_periodo(
+        datas_finais["satisfacao"], quantidade_meses
+    )
+    inicio_movimentacao = calcular_inicio_periodo(
+        datas_finais["movimentacao"], quantidade_meses
+    )
     serie = carregar_serie_mensal(estado_filtro)
     serie_filtrada = serie.copy()
-    if inicio_periodo is not None:
+    if inicio_investimentos is not None:
         serie_filtrada = serie_filtrada[
-            serie_filtrada["mes"] >= inicio_periodo
+            serie_filtrada["mes"] >= inicio_investimentos
         ]
 
-    satisfacao = carregar_satisfacao(estado_filtro, inicio_periodo)
-    kpis = carregar_kpis(estado_filtro, inicio_periodo)
+    satisfacao = carregar_satisfacao(estado_filtro, inicio_satisfacao)
+    kpis = carregar_kpis(
+        estado_filtro,
+        inicio_investimentos,
+        inicio_satisfacao,
+        inicio_movimentacao,
+    )
 
     variacao_carteira = (
         100 * (kpis["valor_atual"] - kpis["valor_aplicado"])
@@ -543,7 +585,9 @@ def exibir_dashboard() -> None:
             exibir_barras(dados_agencias, "media_satisfacao", "#0d7c66")
     with graficos_categoria[1]:
         st.caption("Valor aplicado por tipo de investimento")
-        por_tipo = carregar_investimentos_por_tipo(estado_filtro, inicio_periodo)
+        por_tipo = carregar_investimentos_por_tipo(
+            estado_filtro, inicio_investimentos
+        )
         if por_tipo.empty:
             st.info("Sem investimentos no recorte selecionado.")
         else:
@@ -552,7 +596,7 @@ def exibir_dashboard() -> None:
 
     st.divider()
     st.subheader("Contas com maior movimentação")
-    movimentacao = carregar_movimentacao(estado_filtro, inicio_periodo)
+    movimentacao = carregar_movimentacao(estado_filtro, inicio_movimentacao)
     if movimentacao.empty:
         st.info("Sem movimentações no recorte selecionado.")
     else:
@@ -607,9 +651,10 @@ def exibir_explorador(tabelas: list[tuple[str, str]]) -> None:
         )
 
 
-st.set_page_config(page_title="Painel financeiro | Cooperativa", layout="wide")
-st.markdown(
-    """
+def main() -> None:
+    st.set_page_config(page_title="Painel financeiro | Cooperativa", layout="wide")
+    st.markdown(
+        """
     <style>
     @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap');
     html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
@@ -625,34 +670,42 @@ st.markdown(
     [data-testid="stMetricValue"] { color: #173b35; font-family: 'Manrope', sans-serif; font-size: 1.45rem; }
     [data-testid="stSidebar"] { background: #e8f0eb; border-right: 1px solid #d4e0d9; }
     </style>
-    """,
-    unsafe_allow_html=True,
-)
+        """,
+        unsafe_allow_html=True,
+    )
 
-if not CAMINHO_BANCO.is_file():
-    st.error(f"Banco não encontrado: {CAMINHO_BANCO}")
-    st.stop()
+    if not CAMINHO_BANCO.is_file():
+        try:
+            with st.spinner("Preparando os dados do dashboard..."):
+                preparar_banco_se_necessario()
+        except (duckdb.Error, OSError, ValueError) as erro:
+            st.error(f"Não foi possível preparar o banco do dashboard: {erro}")
+            st.stop()
 
-try:
-    tabelas_disponiveis = listar_tabelas()
-except duckdb.Error as erro:
-    st.error(f"Não foi possível abrir o banco: {erro}")
-    st.stop()
+    try:
+        tabelas_disponiveis = listar_tabelas()
+    except duckdb.Error as erro:
+        st.error(f"Não foi possível abrir o banco: {erro}")
+        st.stop()
 
-if not tabelas_disponiveis:
-    st.info("Nenhuma tabela foi encontrada no banco.")
-    st.stop()
+    if not tabelas_disponiveis:
+        st.info("Nenhuma tabela foi encontrada no banco.")
+        st.stop()
 
-st.sidebar.title("Cooperativa")
-st.sidebar.caption("INTELIGÊNCIA FINANCEIRA")
-tela = st.sidebar.radio("Navegação", ["Visão geral", "Explorador de dados"])
-st.sidebar.divider()
-st.sidebar.caption(f"Banco local · {CAMINHO_BANCO.name}")
+    st.sidebar.title("Cooperativa")
+    st.sidebar.caption("INTELIGÊNCIA FINANCEIRA")
+    tela = st.sidebar.radio("Navegação", ["Visão geral", "Explorador de dados"])
+    st.sidebar.divider()
+    st.sidebar.caption(f"Banco local · {CAMINHO_BANCO.name}")
 
-try:
-    if tela == "Visão geral":
-        exibir_dashboard()
-    else:
-        exibir_explorador(tabelas_disponiveis)
-except duckdb.Error as erro:
-    st.error(f"Não foi possível carregar os indicadores: {erro}")
+    try:
+        if tela == "Visão geral":
+            exibir_dashboard()
+        else:
+            exibir_explorador(tabelas_disponiveis)
+    except duckdb.Error as erro:
+        st.error(f"Não foi possível carregar os indicadores: {erro}")
+
+
+if __name__ == "__main__":
+    main()
