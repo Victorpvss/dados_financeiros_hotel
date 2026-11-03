@@ -1,6 +1,6 @@
 venv
 .venv
-.venv/
+
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -10,3 +10,10 @@ dados_financeiros.duckdb
 venv/
 .vscode/
 .codex/
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Ambientes virtuais
+.venv/
