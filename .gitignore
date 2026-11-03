@@ -8,3 +8,5 @@ __pycache__/
 *.duckdb.wal
 dados_financeiros.duckdb
 venv/
+.vscode/
+.codex/
