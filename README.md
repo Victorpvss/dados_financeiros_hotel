@@ -2,6 +2,7 @@
 
 **Dashboard público:** ainda não publicado. Após configurar o deploy, substitua
 este aviso pela URL `https://<seu-app>.streamlit.app`.
+[Acesso ao Projeto Streamlit](https://<seu-app>.streamlit.app)
 
 Pipeline de dados financeiros de uma cooperativa, da ingestão de arquivos CSV
 até a geração de indicadores analíticos consultáveis no DuckDB. O repositório
